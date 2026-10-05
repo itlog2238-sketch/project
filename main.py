@@ -95,7 +95,7 @@ BORDER_COLORS: Dict[str, str] = {
     "FOUR":           "#9b5de5",
     # New gestures
     "PINKY":          "#c77dff",
-    "SPIDER-MAN":     "#e63946",
+    "ILY":            "#ff6b9d",
     "VULCAN":         "#00b4d8",
     "POINT DOWN":     "#9b5de5",
     "CROSSED FINGERS":"#f4a261",
@@ -122,7 +122,7 @@ GESTURES: Dict[str, tuple] = {
     "FOUR":            ("(4)",      "FOUR FINGERS"),
     # New gestures
     "PINKY":           ("(pinky)",  "PINKY"),
-    "SPIDER-MAN":      ("(spidey)", "SPIDER-MAN"),
+    "ILY":             ("(ily)",    "I LOVE YOU"),
     "VULCAN":          ("(llap)",   "VULCAN SALUTE"),
     "POINT DOWN":      ("(down)",   "POINT DOWN"),
     "CROSSED FINGERS": ("(cross)",  "CROSSED FINGERS"),
@@ -146,7 +146,7 @@ GESTURE_LABELS: Dict[str, str] = {
     "FOUR":            "[Four]",
     # New gestures
     "PINKY":           "[Pinky]",
-    "SPIDER-MAN":      "[Spidey]",
+    "ILY":             "[ILY]",
     "VULCAN":          "[Vulcan]",
     "POINT DOWN":      "[PtDown]",
     "CROSSED FINGERS": "[Cross]",
@@ -299,9 +299,9 @@ def recognize_gesture(lm):
     if thumb and pinky and not index and not middle and not ring:
         return "SHAKA"
 
-    # ── SPIDER-MAN: thumb + index + pinky, middle + ring curled (after SHAKA) ──
+    # ── ILY (I Love You): thumb + index + pinky, middle + ring curled (after SHAKA) ──
     if thumb and index and pinky and not middle and not ring:
-        return "SPIDER-MAN"
+        return "ILY"
 
     # ── THUMBS UP: thumb only ──
     if thumb and not index and not middle and not ring and not pinky:
@@ -361,8 +361,8 @@ def is_heart(hand1, hand2):
 # ──────────── SOUND FEEDBACK ────────────
 
 def _gesture_sound_params(gesture: str):
-    happy = {"PEACE", "OK", "HEART", "SHAKA", "WAVE", "CROSSED FINGERS", "VULCAN"}
-    power = {"FIST", "ROCK", "SPIDER-MAN", "FINGER GUN"}
+    happy = {"PEACE", "OK", "HEART", "SHAKA", "WAVE", "CROSSED FINGERS", "VULCAN", "ILY"}
+    power = {"FIST", "ROCK", "FINGER GUN"}
     if gesture in happy:
         return SOUND_HAPPY
     if gesture in power:
@@ -479,7 +479,7 @@ class PopupManager:
             "FOUR":            "4️⃣",
             # New gestures
             "PINKY":           "🌸",
-            "SPIDER-MAN":      "🕷️",
+            "ILY":             "🤟",
             "VULCAN":          "🖖",
             "POINT DOWN":      "👇",
             "CROSSED FINGERS": "🤞",
@@ -688,6 +688,74 @@ def draw_no_hand_overlay(frame, frame_count: int):
     cv2.putText(frame, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
 
 
+def draw_ily_rainbow(frame, frame_count: int):
+    """Draw animated rainbow 'I LOVE YOU' text overlay when ILY gesture is active."""
+    h, w = frame.shape[:2]
+    text = "I LOVE YOU"
+    font = cv2.FONT_HERSHEY_DUPLEX
+    scale = 2.8
+    thickness = 5
+
+    # Rainbow palette (BGR): red, orange, yellow, green, cyan, blue, violet, pink, hot pink
+    colors = [
+        (0,   0,   255),   # red
+        (0,   80,  255),   # orange
+        (0,   200, 255),   # yellow
+        (0,   255,   0),   # green
+        (255, 200,   0),   # cyan
+        (255,  80,   0),   # blue
+        (255,   0, 180),   # violet
+        (180,   0, 255),   # pink
+        (80,    0, 255),   # hot pink
+    ]
+
+    # Measure total width of all printable characters
+    total_width = 0
+    char_widths = []
+    space_advance = 0
+    for ch in text:
+        if ch == ' ':
+            # Use 'O' width as a reasonable space width
+            (sw, _), _ = cv2.getTextSize('O', font, scale, thickness)
+            char_widths.append(sw)
+            space_advance = sw
+        else:
+            (cw, _), _ = cv2.getTextSize(ch, font, scale, thickness)
+            char_widths.append(cw)
+        total_width += char_widths[-1]
+
+    # Get height from a representative character
+    (_, ch_h), baseline = cv2.getTextSize('A', font, scale, thickness)
+
+    # Center position
+    x_start = (w - total_width) // 2
+    y_center = h // 2 + ch_h // 2
+
+    # Semi-transparent dark background
+    pad_x, pad_y = 20, 18
+    bg_x1 = x_start - pad_x
+    bg_y1 = y_center - ch_h - pad_y
+    bg_x2 = x_start + total_width + pad_x
+    bg_y2 = y_center + baseline + pad_y
+    # Clamp to frame
+    bg_x1 = max(0, bg_x1)
+    bg_y1 = max(0, bg_y1)
+    bg_x2 = min(w, bg_x2)
+    bg_y2 = min(h, bg_y2)
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), (10, 10, 10), -1)
+    cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
+
+    # Draw each character with its own cycling color
+    color_offset = frame_count % len(colors)
+    x = x_start
+    for i, ch in enumerate(text):
+        color = colors[(i + color_offset) % len(colors)]
+        if ch != ' ':
+            cv2.putText(frame, ch, (x, y_center), font, scale, color, thickness, cv2.LINE_AA)
+        x += char_widths[i]
+
+
 # ──────────── MAIN ────────────
 
 def main():
@@ -792,6 +860,8 @@ def main():
 
             # ── Drawing ──
             draw_gesture_info(frame, state.stable_gesture, state.candidate_count)
+            if state.stable_gesture == "ILY":
+                draw_ily_rainbow(frame, state.frame_count)
             draw_fps(frame, fps)
 
             if state.show_history and state.history:
